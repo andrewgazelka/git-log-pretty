@@ -52,7 +52,7 @@ fn main() -> Result<()> {
 }
 
 fn run_diff_stats(base_branch: &str, head_branch: &str) -> Result<()> {
-    let repo = Repository::open(".").wrap_err("Failed to open git repository")?;
+    let repo = Repository::discover(".").wrap_err("Failed to discover git repository")?;
 
     let changed_files = get_diff_stats(&repo, base_branch, head_branch)?;
 
@@ -86,7 +86,7 @@ fn run_diff_stats(base_branch: &str, head_branch: &str) -> Result<()> {
 }
 
 fn run_git_log() -> Result<()> {
-    let repo = Repository::open(".").wrap_err("Failed to open git repository")?;
+    let repo = Repository::discover(".").wrap_err("Failed to discover git repository")?;
 
     let main_ref = repo
         .find_reference("refs/heads/main")
