@@ -47,14 +47,6 @@ pub fn get_file_icons(files: &[String], theme: &Option<Theme>) -> String {
     let mut result = Vec::new();
     print_tree(&root, theme, "", true, &mut result);
 
-    if result.len() > 8 {
-        result.truncate(8);
-        result.push(format!(
-            "    {}",
-            format!("+{} more files", files.len() - 8).with(Color::DarkGrey)
-        ));
-    }
-
     result.join("\n")
 }
 

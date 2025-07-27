@@ -63,9 +63,27 @@ pub fn get_diff_stats(
     base_branch: &str,
     head_branch: &str,
 ) -> Result<Vec<String>> {
-    let base_ref = repo
-        .find_reference(&format!("refs/heads/{base_branch}"))
-        .wrap_err(format!("Failed to find {base_branch} branch"))?;
+    // Helper function to resolve branch reference
+    let resolve_branch_ref = |branch: &str| -> Result<git2::Reference> {
+        // Try local branch first
+        if let Ok(local_ref) = repo.find_reference(&format!("refs/heads/{branch}")) {
+            return Ok(local_ref);
+        }
+
+        // Try remote branch
+        if let Ok(remote_ref) = repo.find_reference(&format!("refs/remotes/{branch}")) {
+            return Ok(remote_ref);
+        }
+
+        // Try as exact reference name
+        if let Ok(exact_ref) = repo.find_reference(branch) {
+            return Ok(exact_ref);
+        }
+
+        Err(eyre::eyre!("Failed to find branch: {branch}"))
+    };
+
+    let base_ref = resolve_branch_ref(base_branch)?;
     let base_commit = repo
         .find_commit(base_ref.target().unwrap())
         .wrap_err("Failed to find base commit")?;
@@ -74,8 +92,7 @@ pub fn get_diff_stats(
     let head_ref = if head_branch == "HEAD" {
         repo.head().wrap_err("Failed to get HEAD reference")?
     } else {
-        repo.find_reference(&format!("refs/heads/{head_branch}"))
-            .wrap_err(format!("Failed to find {head_branch} branch"))?
+        resolve_branch_ref(head_branch)?
     };
     let head_commit = repo
         .find_commit(head_ref.target().unwrap())
