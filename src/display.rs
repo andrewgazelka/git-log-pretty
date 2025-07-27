@@ -60,7 +60,14 @@ pub fn format_conventional_commit(
         // Hash the commit type to get a consistent color
         let bg_color = hash_to_background_color(commit_type, is_dark_theme);
 
-        let formatted_type = commit_type.on(bg_color).with(Color::White).bold();
+        // Use appropriate text color based on theme
+        let text_color = if is_dark_theme {
+            Color::White // White text on dark backgrounds
+        } else {
+            Color::Black // Black text on light backgrounds
+        };
+
+        let formatted_type = commit_type.on(bg_color).with(text_color).bold();
 
         if let Some(scope_text) = scope {
             format!(

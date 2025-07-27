@@ -12,11 +12,11 @@ pub fn hash_to_background_color(text: &str, is_dark_theme: bool) -> Color {
 
     // Adjust saturation and brightness based on theme for better readability
     let (saturation, brightness) = if is_dark_theme {
-        // For dark backgrounds: more muted colors to ensure white text is readable
-        (0.5, 0.5)
+        // For dark theme: muted colors with medium brightness for white text
+        (0.6, 0.5)
     } else {
-        // For light backgrounds: more vibrant colors work better
-        (0.7, 0.8)
+        // For light theme: lighter, pastel colors for black text
+        (0.4, 0.8)
     };
 
     let (r, g, b) = hsv_to_rgb(hue, saturation, brightness);

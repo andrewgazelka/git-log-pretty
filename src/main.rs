@@ -154,4 +154,3 @@ fn run_git_log() -> Result<()> {
 
     Ok(())
 }
-// test comment
