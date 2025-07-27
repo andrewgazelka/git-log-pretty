@@ -1,3 +1,4 @@
+use clap::{Parser, Subcommand};
 use crossterm::style::{Color, Stylize};
 use devicons::Theme;
 use eyre::{Result, WrapErr};
@@ -13,12 +14,75 @@ mod icons;
 mod time;
 
 use display::print_pretty_commit;
-use git::collect_commits;
+use git::{collect_commits, get_diff_stats};
+use icons::get_file_icons;
+
+#[derive(Parser)]
+#[command(name = "git-log-pretty")]
+#[command(about = "A pretty git log viewer with tree views")]
+pub struct Cli {
+    #[command(subcommand)]
+    pub command: Option<Commands>,
+}
+
+#[derive(Subcommand)]
+pub enum Commands {
+    /// Show diff stats with tree view (like git diff --stat but prettier)
+    Diff {
+        /// Base branch to compare against
+        #[arg(default_value = "main")]
+        base: String,
+        /// Head branch to compare (defaults to current HEAD)
+        #[arg(default_value = "HEAD")]
+        head: String,
+    },
+}
 
 fn main() -> Result<()> {
     color_eyre::install()?;
 
-    run_git_log().wrap_err("Failed to analyze git log")
+    let cli = Cli::parse();
+
+    match &cli.command {
+        Some(Commands::Diff { base, head }) => {
+            run_diff_stats(base, head).wrap_err("Failed to analyze diff stats")
+        }
+        None => run_git_log().wrap_err("Failed to analyze git log"),
+    }
+}
+
+fn run_diff_stats(base_branch: &str, head_branch: &str) -> Result<()> {
+    let repo = Repository::open(".").wrap_err("Failed to open git repository")?;
+
+    let changed_files = get_diff_stats(&repo, base_branch, head_branch)?;
+
+    if changed_files.is_empty() {
+        println!("{}", "No changes found".with(Color::Green));
+        return Ok(());
+    }
+
+    // Cache theme detection once
+    let theme = match luma() {
+        Ok(val) if val > 0.5 => Some(Theme::Light),
+        _ => Some(Theme::Dark),
+    };
+
+    println!(
+        "{} files changed in {}...{}\n",
+        changed_files.len().to_string().with(Color::Cyan),
+        base_branch.with(Color::Yellow),
+        head_branch.with(Color::Yellow)
+    );
+
+    let file_icons = get_file_icons(&changed_files, &theme);
+
+    if !file_icons.is_empty() {
+        println!("{file_icons}");
+    }
+
+    println!();
+
+    Ok(())
 }
 
 fn run_git_log() -> Result<()> {
@@ -90,3 +154,4 @@ fn run_git_log() -> Result<()> {
 
     Ok(())
 }
+// test comment
