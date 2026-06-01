@@ -5,17 +5,25 @@ use eyre::{Result, WrapErr};
 use git2::{Oid, Repository};
 use regex::Regex;
 use std::collections::HashSet;
+use std::io::IsTerminal;
 use terminal_light::luma;
 
+mod avatar;
 mod colors;
 mod display;
 mod git;
 mod icons;
+mod render;
 mod time;
 
-use display::print_pretty_commit;
+use avatar::AvatarResolver;
+use display::commit_lines;
 use git::{collect_commits, get_diff_stats};
 use icons::get_file_icons;
+
+/// Avatar size to request from GitHub, in pixels. Larger than any cell box so
+/// the terminal downscales rather than upscales.
+const AVATAR_SIZE_PX: u32 = 128;
 
 #[derive(Parser)]
 #[command(name = "git-log-pretty")]
@@ -23,6 +31,20 @@ use icons::get_file_icons;
 pub struct Cli {
     #[command(subcommand)]
     pub command: Option<Commands>,
+
+    /// Don't draw author GitHub avatars inline (kitty graphics protocol).
+    #[arg(long, global = true)]
+    pub no_avatar: bool,
+
+    /// Height of each inline avatar in terminal rows (0 disables avatars).
+    #[arg(long, global = true, default_value_t = 2)]
+    pub avatar_rows: u32,
+
+    /// Resolve unlinked authors by searching GitHub's public user index by
+    /// email. Off by default: a public email can match an unrelated account, so
+    /// this can show the wrong person.
+    #[arg(long, global = true)]
+    pub email_search: bool,
 }
 
 #[derive(Subcommand)]
@@ -47,7 +69,7 @@ fn main() -> Result<()> {
         Some(Commands::Diff { base, head }) => {
             run_diff_stats(base, head).wrap_err("Failed to analyze diff stats")
         }
-        None => run_git_log().wrap_err("Failed to analyze git log"),
+        None => run_git_log(&cli).wrap_err("Failed to analyze git log"),
     }
 }
 
@@ -85,7 +107,7 @@ fn run_diff_stats(base_branch: &str, head_branch: &str) -> Result<()> {
     Ok(())
 }
 
-fn run_git_log() -> Result<()> {
+fn run_git_log(cli: &Cli) -> Result<()> {
     let repo = Repository::discover(".").wrap_err("Failed to discover git repository")?;
 
     let main_ref = repo
@@ -145,11 +167,28 @@ fn run_git_log() -> Result<()> {
         }
     );
 
+    // Avatars need a graphics-capable terminal and a real tty; honor the opt-out.
+    let avatars_enabled = !cli.no_avatar
+        && cli.avatar_rows > 0
+        && kitty::is_supported()
+        && std::io::stdout().is_terminal();
+    let mut resolver =
+        avatars_enabled.then(|| AvatarResolver::new(&repo, AVATAR_SIZE_PX, cli.email_search));
+    let mut transmitted: HashSet<u32> = HashSet::new();
+
     for commit_id in display_commits {
         let commit = repo
             .find_commit(*commit_id)
             .wrap_err("Failed to find commit")?;
-        print_pretty_commit(&repo, &commit, &theme, &conventional_commit_regex)?;
+
+        let lines = commit_lines(&repo, &commit, &theme, &conventional_commit_regex)?;
+
+        let avatar = resolver.as_mut().and_then(|r| {
+            let email = commit.author().email().unwrap_or_default().to_string();
+            r.avatar_for(&email, &commit.id().to_string())
+        });
+
+        render::render_commit(&lines, avatar.as_ref(), &mut transmitted, cli.avatar_rows);
     }
 
     Ok(())
