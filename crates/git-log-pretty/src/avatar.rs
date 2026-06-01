@@ -23,7 +23,11 @@ pub struct AvatarResolver {
     /// Explicit `email -> login` overrides from `git config githubLogin.map`.
     identities: HashMap<String, String>,
     size_px: u32,
+    /// Resolve unlinked authors via GitHub user search. Off by default because a
+    /// public email can match an unrelated account.
+    allow_search: bool,
     /// Resolved `email -> login` (None = tried and failed), bounding API calls.
+    /// Successful resolutions are also persisted to disk and reloaded next run.
     login_cache: HashMap<String, Option<String>>,
     /// Downloaded `login -> png` (None = tried and failed).
     png_cache: HashMap<String, Option<Vec<u8>>>,
@@ -34,22 +38,31 @@ pub struct AvatarResolver {
 }
 
 impl AvatarResolver {
-    pub fn new(repo: &Repository, size_px: u32) -> Self {
+    pub fn new(repo: &Repository, size_px: u32, allow_search: bool) -> Self {
         let origin = repo
             .find_remote("origin")
             .ok()
             .and_then(|r| r.url().and_then(github::parse_remote));
+
+        let cache_dir = avatar_cache_dir();
+        let login_cache = cache_dir
+            .as_ref()
+            .map(|d| load_login_cache(&d.join(LOGIN_CACHE_FILE)))
+            .unwrap_or_default();
 
         Self {
             client: Client::new(discover_token()),
             origin,
             identities: load_identities(repo),
             size_px,
-            login_cache: HashMap::new(),
+            allow_search,
+            login_cache,
             png_cache: HashMap::new(),
             login_ids: HashMap::new(),
-            next_id: 1,
-            cache_dir: avatar_cache_dir(),
+            // Seed the kitty image-id counter from the pid so concurrent tools
+            // sharing the terminal are unlikely to collide on image ids.
+            next_id: std::process::id().wrapping_mul(256).wrapping_add(1),
+            cache_dir,
         }
     }
 
@@ -75,12 +88,21 @@ impl AvatarResolver {
             return cached.clone();
         }
 
-        let resolved = github::parse_noreply(email)
+        let mut resolved = github::parse_noreply(email)
             .map(|u| u.login)
-            .or_else(|| self.resolve_via_commit(sha))
-            .or_else(|| self.client.search_email(email).ok().flatten().map(|u| u.login));
+            .or_else(|| self.resolve_via_commit(sha));
+        // Email search is a guess (a public email can match an unrelated
+        // account), so it only runs when explicitly opted in.
+        if resolved.is_none() && self.allow_search {
+            resolved = self.client.search_email(email).ok().flatten().map(|u| u.login);
+        }
 
         self.login_cache.insert(email.to_string(), resolved.clone());
+        // Persist positive resolutions so later runs skip the network. Negatives
+        // stay in memory only: an unpushed commit can resolve once it lands.
+        if let Some(login) = &resolved {
+            self.persist_login(email, login);
+        }
         resolved
     }
 
@@ -130,6 +152,26 @@ impl AvatarResolver {
 
     fn read_disk(&self, login: &str) -> Option<Vec<u8>> {
         std::fs::read(self.disk_path(login)?).ok()
+    }
+
+    /// Append a `email\tlogin` line to the on-disk resolution cache. Best-effort:
+    /// failures (no cache dir, read-only fs) are ignored.
+    fn persist_login(&self, email: &str, login: &str) {
+        // Tabs and newlines would corrupt the line format; such values never
+        // come from a valid email or login, so skip them defensively.
+        if email.contains(['\t', '\n']) || login.contains(['\t', '\n']) {
+            return;
+        }
+        let Some(path) = self.cache_dir.as_ref().map(|d| d.join(LOGIN_CACHE_FILE)) else {
+            return;
+        };
+        if let Some(dir) = path.parent() {
+            let _ = std::fs::create_dir_all(dir);
+        }
+        if let Ok(mut file) = std::fs::OpenOptions::new().create(true).append(true).open(&path) {
+            use std::io::Write;
+            let _ = writeln!(file, "{email}\t{login}");
+        }
     }
 
     fn write_disk(&self, login: &str, bytes: &[u8]) {
@@ -186,6 +228,27 @@ fn load_identities(repo: &Repository) -> HashMap<String, String> {
                 }
             }
         });
+    }
+    map
+}
+
+/// Name of the on-disk `email\tlogin` resolution cache within the cache dir.
+const LOGIN_CACHE_FILE: &str = "logins.tsv";
+
+/// Load the persisted `email -> login` resolutions (all positive) into the
+/// in-memory cache. Later lines win, so a re-resolved login supersedes an older
+/// one. Missing or unreadable files yield an empty cache.
+fn load_login_cache(path: &std::path::Path) -> HashMap<String, Option<String>> {
+    let mut map = HashMap::new();
+    let Ok(contents) = std::fs::read_to_string(path) else {
+        return map;
+    };
+    for line in contents.lines() {
+        if let Some((email, login)) = line.split_once('\t') {
+            if !email.is_empty() && !login.is_empty() {
+                map.insert(email.to_string(), Some(login.to_string()));
+            }
+        }
     }
     map
 }

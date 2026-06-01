@@ -11,18 +11,21 @@ nix run github:andrewgazelka/git-log-pretty
 ## Avatars
 
 Each commit is shown with the author's GitHub avatar in the left gutter. The
-author's GitHub login is resolved cheapest-first:
+author's GitHub login is resolved cheapest-first, and every step ties the email
+to a specific account:
 
-1. `…@users.noreply.github.com` commit emails carry the login directly (no
+1. An explicit override from `git config githubLogin.map`.
+2. `…@users.noreply.github.com` commit emails carry the login directly (no
    network).
-2. Otherwise the commit is looked up via the GitHub API for `origin`, which
+3. Otherwise the commit is looked up via the GitHub API for `origin`, which
    resolves any email linked to a GitHub account.
-3. Failing that, the email is searched in GitHub's public user index.
 
 Avatars are downloaded from `https://github.com/<login>.png`, cached under
 `$XDG_CACHE_HOME/git-log-pretty/avatars`, and only transmitted once per author
-per run. The API lookups use a token from `GITHUB_TOKEN`, `GH_TOKEN`, or
-`gh auth token` when available; the avatar download itself needs no token.
+per run. Successful `email → login` resolutions are cached too, so repeat runs
+make no network calls. The API lookups use a token from `GITHUB_TOKEN`,
+`GH_TOKEN`, or `gh auth token` when available; the avatar download itself needs
+no token.
 
 If your commit email is not linked to your GitHub account, map it yourself:
 
@@ -31,8 +34,10 @@ git config --add githubLogin.map "you@example.com=your-login"
 ```
 
 Flags: `--no-avatar` disables the images; `--avatar-rows N` sets their height in
-terminal rows (default `2`, `0` also disables). Avatars are skipped automatically
-when output is not a kitty/ghostty/wezterm terminal or is piped to a file.
+terminal rows (default `2`, `0` also disables); `--email-search` adds a
+last-resort lookup in GitHub's public user index (off by default, since a public
+email can match an unrelated account). Avatars are skipped automatically when
+output is not a kitty/ghostty/wezterm terminal or is piped to a file.
 
 ## Workspace
 

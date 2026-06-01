@@ -39,6 +39,12 @@ pub struct Cli {
     /// Height of each inline avatar in terminal rows (0 disables avatars).
     #[arg(long, global = true, default_value_t = 2)]
     pub avatar_rows: u32,
+
+    /// Resolve unlinked authors by searching GitHub's public user index by
+    /// email. Off by default: a public email can match an unrelated account, so
+    /// this can show the wrong person.
+    #[arg(long, global = true)]
+    pub email_search: bool,
 }
 
 #[derive(Subcommand)]
@@ -167,7 +173,7 @@ fn run_git_log(cli: &Cli) -> Result<()> {
         && kitty::is_supported()
         && std::io::stdout().is_terminal();
     let mut resolver =
-        avatars_enabled.then(|| AvatarResolver::new(&repo, AVATAR_SIZE_PX));
+        avatars_enabled.then(|| AvatarResolver::new(&repo, AVATAR_SIZE_PX, cli.email_search));
     let mut transmitted: HashSet<u32> = HashSet::new();
 
     for commit_id in display_commits {

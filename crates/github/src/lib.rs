@@ -34,6 +34,8 @@ pub enum Error {
     Http(Box<ureq::Error>),
     /// Reading or decoding a response body failed.
     Io(std::io::Error),
+    /// A login failed validation, so no request was made.
+    InvalidLogin(String),
 }
 
 impl std::fmt::Display for Error {
@@ -41,6 +43,7 @@ impl std::fmt::Display for Error {
         match self {
             Error::Http(e) => write!(f, "github request failed: {e}"),
             Error::Io(e) => write!(f, "github response error: {e}"),
+            Error::InvalidLogin(login) => write!(f, "not a valid github login: {login:?}"),
         }
     }
 }
@@ -75,12 +78,30 @@ pub fn parse_noreply(email: &str) -> Option<User> {
         Some((_, login)) => login,
         None => local.as_str(),
     };
-    if login.is_empty() {
+    // The local part is attacker-controlled, so only accept a real login shape;
+    // this is what keeps `/`, `?`, `#` out of the avatar URL later.
+    if !is_valid_login(login) {
         return None;
     }
     Some(User {
         login: login.to_string(),
     })
+}
+
+/// Whether `login` is a syntactically valid GitHub username: 1–39 characters of
+/// ASCII alphanumerics and hyphens, not starting or ending with a hyphen.
+///
+/// A valid login needs no URL or path encoding, so validating here lets callers
+/// safely interpolate it. Used as a guard before any network or filesystem use.
+pub fn is_valid_login(login: &str) -> bool {
+    let bytes = login.as_bytes();
+    if login.is_empty() || login.len() > 39 {
+        return false;
+    }
+    if bytes[0] == b'-' || bytes[bytes.len() - 1] == b'-' {
+        return false;
+    }
+    login.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-')
 }
 
 /// Parse `owner` and `repo` from a GitHub remote URL (https or ssh forms).
@@ -191,6 +212,11 @@ impl Client {
     /// The `.png` endpoint transcodes to PNG server-side, so the result is
     /// always PNG even if the user uploaded a JPEG.
     pub fn avatar_png(&self, login: &str, size_px: u32) -> Result<Vec<u8>, Error> {
+        // Defense in depth: every resolution path funnels through here, so this
+        // single guard keeps an untrusted login out of the request target.
+        if !is_valid_login(login) {
+            return Err(Error::InvalidLogin(login.to_string()));
+        }
         let url = format!("https://github.com/{login}.png?size={size_px}");
         let resp = self
             .agent
@@ -250,6 +276,28 @@ mod tests {
     fn non_noreply_email_is_none() {
         assert_eq!(parse_noreply("drew@x.ai"), None);
         assert_eq!(parse_noreply("nope"), None);
+    }
+
+    #[test]
+    fn noreply_with_url_unsafe_login_is_rejected() {
+        // A crafted local part must not produce a login that injects into a URL.
+        assert_eq!(parse_noreply("a/b@users.noreply.github.com"), None);
+        assert_eq!(parse_noreply("a?b@users.noreply.github.com"), None);
+        assert_eq!(parse_noreply("a#b@users.noreply.github.com"), None);
+        assert_eq!(parse_noreply("dependabot[bot]@users.noreply.github.com"), None);
+    }
+
+    #[test]
+    fn valid_login_charset_and_edges() {
+        assert!(is_valid_login("octocat"));
+        assert!(is_valid_login("andrew-gazelka"));
+        assert!(is_valid_login("a"));
+        assert!(!is_valid_login(""));
+        assert!(!is_valid_login("-lead"));
+        assert!(!is_valid_login("trail-"));
+        assert!(!is_valid_login("has space"));
+        assert!(!is_valid_login("has/slash"));
+        assert!(!is_valid_login(&"x".repeat(40)));
     }
 
     #[test]
