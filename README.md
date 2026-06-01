@@ -1,3 +1,6 @@
+> [!NOTE]
+> Archived. The maintained version now lives in the `indexable-inc/index` monorepo at `packages/git-log-pretty`. This standalone repo is read-only.
+
 # git-log-pretty
 
 A pretty git log viewer for showing commits ahead of main, built with Rust. On a
