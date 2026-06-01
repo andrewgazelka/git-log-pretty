@@ -1,0 +1,11 @@
+[package]
+name = "github"
+description = "Resolve a git commit author to a GitHub user and fetch their avatar"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+ureq = { version = "2", default-features = false, features = ["tls", "gzip", "json"] }
+serde = { version = "1", features = ["derive"] }

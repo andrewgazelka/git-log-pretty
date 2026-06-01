@@ -8,40 +8,38 @@ use eyre::Result;
 use git2::{Commit, Repository};
 use regex::Regex;
 
-pub fn print_pretty_commit(
+/// Build the text rows for one commit: a header line (short id, summary, age)
+/// followed by the file-change tree. The rows carry their own indentation, so
+/// the caller prints them verbatim (or shifts them right to clear an avatar).
+pub fn commit_lines(
     repo: &Repository,
     commit: &Commit,
     theme: &Option<Theme>,
     regex: &Regex,
-) -> Result<()> {
+) -> Result<Vec<String>> {
     let id = commit.id();
     let short_id = &id.to_string()[0..7];
     let message = commit.message().unwrap_or("<no message>");
     let summary = message.lines().next().unwrap_or("").trim();
     let time = format_time(&commit.time());
 
-    // Get file changes
     let changed_files = get_changed_files(repo, commit)?;
     let file_icons = get_file_icons(&changed_files, theme);
 
-    // Parse conventional commit prefix and apply background color
     let formatted_summary = format_conventional_commit(summary, regex, theme);
 
-    // Compact output - commit info and time on same line
-    println!(
+    let mut lines = vec![format!(
         "  {} {} • {}",
         short_id.with(Color::Yellow),
         formatted_summary,
         time.with(Color::DarkGrey)
-    );
+    )];
 
     if !file_icons.is_empty() {
-        println!("{file_icons}");
+        lines.extend(file_icons.split('\n').map(str::to_string));
     }
 
-    println!();
-
-    Ok(())
+    Ok(lines)
 }
 
 pub fn format_conventional_commit(

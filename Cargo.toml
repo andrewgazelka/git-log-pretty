@@ -1,15 +1,12 @@
-[package]
-name = "git-log-pretty"
-version = "0.1.0"
-edition = "2024"
+[workspace]
+resolver = "2"
+members = ["crates/kitty", "crates/github", "crates/git-log-pretty"]
 
-[dependencies]
-chrono = "0.4.41"
-clap = { version = "4.4", features = ["derive"] }
-color-eyre = "0.6.5"
-crossterm = "0.29.0"
-devicons = "0.6.12"
-eyre = "0.6.12"
-git2 = "0.20.2"
-regex = "1.11.1"
-terminal-light = "1.8.0"
+[workspace.package]
+edition = "2024"
+license = "MIT"
+repository = "https://github.com/andrewgazelka/git-log-pretty"
+
+[workspace.dependencies]
+kitty = { path = "crates/kitty" }
+github = { path = "crates/github" }
